@@ -1,10 +1,10 @@
 ﻿using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.ComponentModel.Design;
 using System.Diagnostics;
 using Blitz.Files;
 using Blitz.Interfacing.QueryProcessing;
 namespace Blitz.Search;
-
 public class Searching
 {
     private readonly MessageProcessDictionary _messageProcesses = new MessageProcessDictionary();
@@ -63,7 +63,10 @@ public class Searching
             newTask.RecyclingResultsInOrder = recycleList.ToImmutableList();
             foreach (var recycled in recycleList)
             {
-                newTask.RetainedResults.TryAdd(recycled.FileName, recycled);
+                if (recycled.FileName != null)
+                {
+                    newTask.RetainedResults.TryAdd(recycled.FileName, recycled);
+                }
             }
 
             newTask.RecyclingResults = newTask.RetainedResults.ToImmutableDictionary();
@@ -81,10 +84,17 @@ public class Searching
     private void FileChanged(object? sender, string e)
     {
         string extension = Path.GetExtension(e);
+        if (ExtensionCache == null)
+        {
+            throw new ArgumentNullException(nameof(ExtensionCache));
+        }
         if (ExtensionCache.TryGetValue(extension, out var dictionary) &&
             dictionary.TryGetValue(e, out var searchFileInformation))
         {
-            searchFileInformation.FileState = SearchFileInformation.ReadState.Unknown;
+            if (searchFileInformation != null)
+            {
+                searchFileInformation.FileState = SearchFileInformation.ReadState.Unknown;
+            }
         }
 
         _changedFiles.TryAdd(e, 1);
@@ -128,6 +138,53 @@ public class Searching
             acceptedExclusions = [];
             fileNameResults = [];
             return;
+        }
+
+        if (oldTask.SearchQuery.SolutionExports == null && newQuery.SolutionExports != null
+            ||newQuery.SolutionExports == null && oldTask.SearchQuery.SolutionExports != null)
+        {
+            acceptedExclusions = [];
+            fileNameResults = [];
+            return;
+        }
+
+        if (oldTask.SearchQuery.SolutionExports != null && newQuery.SolutionExports != null)
+        {
+            if (oldTask.SearchQuery.SolutionExports.Count != 1 && newQuery.SolutionExports.Count != 1)
+            {
+                throw new NotImplementedException(
+                    "Make sure to upgrade this when adding support for searching multiple solutions");
+            }
+
+            var oldProjects = oldTask.SearchQuery.SolutionExports[0].Projects;
+            var newProjects = newQuery.SolutionExports[0].Projects;
+            if (oldProjects!.Count != newProjects!.Count)
+            {
+                acceptedExclusions = [];
+                fileNameResults = [];
+                return;
+            }
+
+            for (int i = 0; i < oldProjects.Count; i++)
+            {
+                if (oldProjects[i].Name != newProjects[i].Name
+                    ||oldProjects[i].Files!.Count != newProjects[i].Files!.Count)
+                {
+                    acceptedExclusions = [];
+                    fileNameResults = [];
+                    return;
+                }
+
+                for (int j = 0; j < oldProjects[i].Files!.Count; j++)
+                {
+                    if (newProjects[i].Files[j] != oldProjects[i].Files[j])
+                    {
+                        acceptedExclusions = [];
+                        fileNameResults = [];
+                        return;
+                    }
+                }
+            }
         }
 
         if (oldTask.SearchQuery.LiteralCaseSensitive != newQuery.LiteralCaseSensitive
@@ -240,8 +297,8 @@ public class Searching
         {
             if (oldTask.SearchQuery.ReplaceInFileEnabled && newQuery.ReplaceInFileEnabled)
             {
-                BlitzAndQuery.QueryMatches(oldTask.SearchQuery.ReplaceTextQuery, out var oldTextReplaceQuery);
-                BlitzAndQuery.QueryMatches(newQuery.ReplaceTextQuery, out var newTextReplaceQuery);
+                BlitzAndQuery.QueryMatches(oldTask.SearchQuery.ReplaceTextQuery!, out var oldTextReplaceQuery);
+                BlitzAndQuery.QueryMatches(newQuery.ReplaceTextQuery!, out var newTextReplaceQuery);
 
                 if (!IsOldQueryRecyclable(oldTextReplaceQuery, newTextReplaceQuery))
                 {

@@ -8,7 +8,6 @@ namespace Blitz.Search.Tests;
 
 public class SearchTests : IDisposable
 {
-    
     private const string OneFile = "file.cs";
     private const string TwoFile = "file2.cs";
     private readonly string _tempPath;
@@ -29,7 +28,7 @@ public class SearchTests : IDisposable
         foreach (var keyFileName in _filesAndContents.Keys)
         {
             string fileName = Path.Combine(_tempPath, keyFileName);
-            var fileSearcher = new SearchFileParsing(fileName, new SearchQuery(string.Empty,[],[],true));
+            var fileSearcher = new SearchFileParsing(fileName, new SearchQuery(string.Empty,[],[]));
             string extension = Path.GetExtension(fileName);
             var fileCache = freshCache.GetOrAdd(extension,
                 (_) => new FilesByExtension());
@@ -45,7 +44,7 @@ public class SearchTests : IDisposable
             Assert.All(deserialized, deserializedItem =>
             {
                 Assert.True(cache.TryGetValue(deserializedItem.Key, out var cacheItemValue));
-                Assert.Equal(cacheItemValue.UniqueWords, deserializedItem.Value.UniqueWords);
+                Assert.Equal(cacheItemValue!.UniqueWords, deserializedItem.Value.UniqueWords);
                 Assert.Equal(cacheItemValue.FileSize, deserializedItem.Value.FileSize);
                 Assert.Equal(cacheItemValue.FileState, deserializedItem.Value.FileState);
                 Assert.Equal(cacheItemValue.LastModifiedTime, deserializedItem.Value.LastModifiedTime);
@@ -59,7 +58,7 @@ public class SearchTests : IDisposable
     public void Test_SearchParsing_SingleFile(string file, string[] uniqueWords)
     {
         string fileName = Path.Combine(_tempPath, file);
-        var fileSearcher = new SearchFileParsing(fileName, new SearchQuery(string.Empty,[],[],true));
+        var fileSearcher = new SearchFileParsing(fileName, new SearchQuery(string.Empty,[],[]));
         var filesByExtension = new FilesByExtension();
         var searchFileInformation = fileSearcher.ParseFile(filesByExtension);
         var exceptSet = new HashSet<string>(uniqueWords);
@@ -68,21 +67,19 @@ public class SearchTests : IDisposable
     }
 
     [Theory()]
-    [InlineData(OneFile, "one", false,new[] {"one two three","one"})]
-    [InlineData(OneFile, "three",false, new[] {"one two three","three three three"})]
-    [InlineData(OneFile, "OnE", true,new string[] {})]
-    [InlineData(TwoFile, "apple", false,new[] {"apple orange"})]
-    [InlineData(TwoFile, "orange", false,new[] {"apple orange"})]
-    [InlineData(TwoFile, "end", false,new[] {"the end"})]
-    [InlineData(TwoFile, "end", true,new[] {"the end"})]
-    [InlineData(TwoFile, "END", true,new string[] {})]
-    [InlineData(TwoFile, "one", false,new string[] {})]
+    [InlineData(OneFile, "one",new[] {"one two three","one"})]
+    [InlineData(OneFile, "three", new[] {"one two three","three three three"})]
+    [InlineData(OneFile, "OnE", new string[] {})]
+    [InlineData(TwoFile, "apple", new[] {"apple orange"})]
+    [InlineData(TwoFile, "orange", new[] {"apple orange"})]
+    [InlineData(TwoFile, "end", new[] {"the end"})]
+    [InlineData(TwoFile, "END", new string[] {})]
+    [InlineData(TwoFile, "one", new string[] {})]
     
-    public void Tests_SearchIng_SingleFile(string file, string searchTerm,bool caseSensitive, string[] resultLines)
+    public void Tests_SearchIng_SingleFile(string file, string searchTerm, string[] resultLines)
     {
         string fileName = Path.Combine(_tempPath, file);
         BlitzAndQuery.QueryMatches(searchTerm, out BlitzAndQuery andQuery);
-        //var fileSearcher = new SearchFileContents(fileName, andQuery, null,null, caseSensitive, new CancellationTokenSource());
         var fileSearcher = new SearchFileContents(fileName, new SearchTaskParameters(andQuery), null);
         fileSearcher.DoSearchFind(out var results);
 

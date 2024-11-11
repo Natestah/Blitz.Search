@@ -28,7 +28,7 @@ public partial class SearchFileParsing
                var info = _parseFileTry(extensionCache);
                return info;
             }
-            catch (IOException ex)
+            catch (IOException)
             {
                 continue;
             }

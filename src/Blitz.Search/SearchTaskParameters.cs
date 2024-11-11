@@ -35,7 +35,7 @@ public class SearchTaskParameters(BlitzAndQuery textBoxQuery,
     bool replaceCaseSensitive = false
     )
 {
-    public BlitzAndQuery? TextBoxQuery => textBoxQuery;
+    public BlitzAndQuery TextBoxQuery => textBoxQuery;
     public BlitzAndQuery? FileNameQuery => fileNameQuery;
     public BlitzAndQuery? DebugFileNameQuery => debugFileNameQuery;
     public IBlitzMatchingQuery? ReplaceQuery => replaceQuery;

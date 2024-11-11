@@ -10,10 +10,10 @@ public class SearchFileContents
     private readonly SearchTaskParameters _taskParameters;
     private readonly CancellationTokenSource _cancellationTokenSource;
     
-    public SearchFileContents(string file, SearchTaskParameters parameters, CancellationTokenSource cancellationTokenSource)
+    public SearchFileContents(string file, SearchTaskParameters parameters, CancellationTokenSource? cancellationTokenSource)
     {
         _fileName = file;
-        _cancellationTokenSource = cancellationTokenSource;
+        _cancellationTokenSource = cancellationTokenSource ?? new CancellationTokenSource();
         _taskParameters = parameters;
         _fileName = file;
     }

@@ -141,7 +141,7 @@ public class SearchTask
         {
             return;
         }
-        if (!DebugMatchesFile(debugFileQuery, taskResult.FileNames[0].FileName))
+        if (!DebugMatchesFile(debugFileQuery, taskResult.FileNames[0].FileName!))
         {
             return;
         }
@@ -230,6 +230,37 @@ public class SearchTask
         return searchTaskResult;
     }
 
+    public IEnumerable<string> SolutionEnumerator(string extension, CancellationTokenSource cancellationTokenSource)
+    {
+        if(SearchQuery.SolutionExports == null) yield break;
+        foreach (var solutionExport in SearchQuery.SolutionExports)
+        {
+            yield return solutionExport.Name!;
+            foreach (var project in solutionExport.Projects ?? [])
+            {
+                yield return project.Name!;
+                foreach (var file in project.Files?? [])
+                {
+                    string fileExtension = string.Empty;
+                    try
+                    {
+                        fileExtension = Path.GetExtension(file);
+                    }
+                    catch (Exception e)
+                    {
+                        //don't bother with things that aren't a file
+                        continue;
+                    }
+
+                    if (fileExtension == extension)
+                    {
+                        yield return file;
+                    }
+                }
+            }
+        }
+    }
+
     public delegate IEnumerable<string> SearchEnumerator(string extension, CancellationTokenSource cancellationTokenSource);
     
     private bool SearchExtension(SearchTaskParameters taskParameters, SearchExtension extension, SearchEnumerator enumerator)
@@ -244,11 +275,14 @@ public class SearchTask
         {
             SearchQuery.SearchThreads = 4;
         }
+
+        if (extension.Extension == null)
+        {
+            throw new ArgumentNullException(nameof(extension.Extension));
+        }
+        
         var fileCache = SearchRoot.ExtensionCache.GetOrAdd(extension.Extension,
             _ => new FilesByExtension());
-
-
-        
 
         bool foundAnyInThisExtension = false;
         var parallelOptions = GetParallelOptions();
@@ -273,7 +307,7 @@ public class SearchTask
                     // This serves as file exists test
                     size = new FileInfo(file).Length;
                 }
-                catch (IOException e)
+                catch (IOException)
                 {
                     return;
                 }
@@ -287,18 +321,23 @@ public class SearchTask
                         && dictionary.TryGetValue(file, out var searchFileInformation))
                     {
                         StringBuilder builder = new StringBuilder();
-                        builder.Append("Filesize: ");
-                        builder.AppendLine(searchFileInformation.FileSize.Bytes().Humanize());
-                        builder.AppendLine();
-                        builder.Append("UniqueWords: ");
-                        builder.AppendLine(string.Join(" ",fileCache.GetWordStrings(searchFileInformation.UniqueWords)) );
-                        builder.AppendLine();
-                        builder.Append("LastModifiedTime: ");
-                        builder.AppendLine(searchFileInformation.LastModifiedTime.Humanize());
-                        builder.AppendLine();
-                        builder.Append("FileState: ");
-                        builder.AppendLine(searchFileInformation.FileState.ToString());
-                        builder.AppendLine();
+
+                        if (searchFileInformation != null)
+                        {
+                            builder.Append("Filesize: ");
+                            //builder.AppendLine(searchFileInformation.FileSize.Bytes().Humanize());
+                            builder.AppendLine(searchFileInformation.FileSize.Bytes().Humanize());
+                            builder.AppendLine();
+                            builder.Append("UniqueWords: ");
+                            builder.AppendLine(string.Join(" ",fileCache.GetWordStrings(searchFileInformation.UniqueWords)) );
+                            builder.AppendLine();
+                            builder.Append("LastModifiedTime: ");
+                            builder.AppendLine(searchFileInformation.LastModifiedTime.Humanize());
+                            builder.AppendLine();
+                            builder.Append("FileState: ");
+                            builder.AppendLine(searchFileInformation.FileState.ToString());
+                            builder.AppendLine();
+                        }
                         DebugReportPriorToCreation(taskParameters.DebugFileNameQuery, file +"DEBUG",builder.ToString() );
                     }
                 }
@@ -355,7 +394,7 @@ public class SearchTask
                                 return;
                             }
 
-                            RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName,
+                            RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName!,
                                 searchTaskResult.FileNames[0]);
                         }
                     }
@@ -395,10 +434,10 @@ public class SearchTask
 
                 if (_totalResultsCount > resultsCap)
                 {
-                    lock (this._capSync)
+                    lock (_capSync)
                     {
                         DebugPostCreation(taskParameters.DebugFileNameQuery, searchTaskResult, "Capped Results" );
-                        if (CappedResults == true)
+                        if (CappedResults)
                         {
                             return;
                         }
@@ -463,7 +502,7 @@ public class SearchTask
                     replaceRegex = new Regex(SearchQuery.ReplaceRegexTextQuery, options);
                 }
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
                 replaceRegex = null;
             }
@@ -485,9 +524,9 @@ public class SearchTask
                 
                 regex = new Regex(SearchQuery.RegexSearchQuery,rxOptions);
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
-                //todo: what now?
+                //todo: what now? 
                 regex = null;
             }
         }
@@ -529,14 +568,12 @@ public class SearchTask
         foreach (var extension in SearchQuery.PriorityExtensions)
         {
             orderedSearch.Add(extension);
-            userSetofExtensions.Add(extension.Extension);
+            userSetofExtensions.Add(extension.Extension!);
         }
         
         SearchRoot.ExtensionCache.RestoreExtensionsEverKnown(TypeDetection.Instance.GetBuiltInTextTypes(),TypeDetection.Instance.GetBuiltInBinaryTypes());
 
         var taskParameters = GetSearchTaskParameters();
-
-        
         var allfoundExtensions = SearchRoot.FileDiscoverer!.GetFoundExtensions();
         foreach (var extension in allfoundExtensions)
         {
@@ -548,7 +585,24 @@ public class SearchTask
             }
         }
 
-        
+        if (SearchQuery.SolutionExports != null)
+        {
+            foreach (var solutionExports in SearchQuery.SolutionExports)
+            {
+                foreach (var project in solutionExports.Projects ?? [])
+                {
+                    foreach (var file in project.Files ?? [])
+                    {
+                        string extension = Path.GetExtension(file);
+                        if (userSetofExtensions.Contains(extension))
+                        {
+                            continue;
+                        }
+                        orderedSearch.Add(new SearchExtension{Extension = extension} );
+                    }
+                }
+            }
+        }
         
         foreach (var extension in allfoundExtensions)
         {
@@ -571,26 +625,39 @@ public class SearchTask
         List<string> paths = new List<string>();
         foreach (var path in SearchQuery.FilePaths)
         {
-            paths.Add(path.Folder);
+            if (path.Folder != null)
+            {
+                paths.Add(path.Folder);
+            }
         }
             
-        var searchedExtensions = new HashSet<string>();
         foreach (var extension in orderedSearch)
         {
-            
             if (CancellationTokenSource.IsCancellationRequested)
             {
                 return;
             }
-            searchedExtensions.Add(extension.Extension);
             try
             {
-                SearchRoot.ExtensionCache.RestoreCache(paths, !SearchQuery.EnableRobotFileFilterDefer,SearchQuery.RobotFilterMaxSizeMB, SearchQuery.RobotFilterMaxLineChars, SearchQuery.UseGitIgnore,extension.Extension,CancellationTokenSource.Token);
-                
-                if (SearchExtension(taskParameters, extension, SearchRoot.ExtensionCache.EnumCacheFileExtensions ))
+
+                //For now this is a radio selection.  and SolutionExports != null means it's time to search solutions only.
+                if (SearchQuery.SolutionExports != null)
                 {
-                    foundAnything = true;
+                    if (SearchExtension(taskParameters, extension, SolutionEnumerator ))
+                    {
+                        foundAnything = true;
+                    }
                 }
+                else
+                {
+                    SearchRoot.ExtensionCache.RestoreCache(paths, !SearchQuery.EnableRobotFileFilterDefer,SearchQuery.RobotFilterMaxSizeMB, SearchQuery.RobotFilterMaxLineChars, SearchQuery.UseGitIgnore,extension.Extension!,CancellationTokenSource.Token);
+                    if (SearchExtension(taskParameters, extension, SearchRoot.ExtensionCache.EnumCacheFileExtensions ))
+                    {
+                        foundAnything = true;
+                    }
+
+                }
+                
                 if (CancellationTokenSource.IsCancellationRequested)
                 {
                     return;
@@ -604,34 +671,45 @@ public class SearchTask
 
         EmptyUnionResults();
 
-        SearchRoot.FileDiscoverer?.WaitUntilFinished(CancellationTokenSource);
-
-        CleanupCache();
+        if (SearchQuery.SolutionExports != null)
+        {
+            SearchRoot.FileDiscoverer?.WaitUntilFinished(CancellationTokenSource);
+            CleanupCache();
+        }
 
         if (CancellationTokenSource.IsCancellationRequested)
         {
             return;
         }
 
-        foreach (var lateExtensions in SearchRoot.FileDiscoverer!.GetFoundExtensions())
+        if (SearchQuery.SolutionExports == null)
         {
-            if (CancellationTokenSource.IsCancellationRequested)
+            foreach (var lateExtensions in SearchRoot.FileDiscoverer!.GetFoundExtensions())
             {
-                return;
-            }
-            SearchRoot.ExtensionCache.RestoreCache(paths, !SearchQuery.EnableRobotFileFilterDefer,SearchQuery.RobotFilterMaxSizeMB, SearchQuery.RobotFilterMaxLineChars, SearchQuery.UseGitIgnore,lateExtensions,CancellationTokenSource.Token);
-            SearchRoot.ExtensionCache.ExtensionsEverKnown[lateExtensions] = 1;
-            if (SearchExtension(taskParameters, new SearchExtension{Extension = lateExtensions}, SearchRoot.FileDiscoverer.EnumerateFilesByExtension))
-            {
-                foundAnything = true;
-            }
-            if (CancellationTokenSource.IsCancellationRequested)
-            {
-                return;
-            }
-            if (SearchRoot.QuietTimeElapsed(this) )
-            {
-                EmptyUnionResults();
+                if (CancellationTokenSource.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (orderedSearch.All(extension => extension.Extension != lateExtensions))
+                {
+                    //only restore if they were late in this discovery.
+                    SearchRoot.ExtensionCache.RestoreCache(paths, !SearchQuery.EnableRobotFileFilterDefer,SearchQuery.RobotFilterMaxSizeMB, SearchQuery.RobotFilterMaxLineChars, SearchQuery.UseGitIgnore,lateExtensions,CancellationTokenSource.Token);
+                }
+                
+                SearchRoot.ExtensionCache.ExtensionsEverKnown[lateExtensions] = 1;
+                if (SearchExtension(taskParameters, new SearchExtension{Extension = lateExtensions}, SearchRoot.FileDiscoverer.EnumerateFilesByExtension))
+                {
+                    foundAnything = true;
+                }
+                if (CancellationTokenSource.IsCancellationRequested)
+                {
+                    return;
+                }
+                if (SearchRoot.QuietTimeElapsed(this) )
+                {
+                    EmptyUnionResults();
+                }
             }
         }
 
@@ -670,7 +748,8 @@ public class SearchTask
         {
             ReportFilesNotFoundMessage(SearchQuery.TextBoxQuery, SearchQuery.FileNameQuery);
         }
-//        else
+
+        if (SearchQuery.SolutionExports == null)
         {
             foreach (var extension in orderedSearch)
             {
@@ -681,11 +760,11 @@ public class SearchTask
 
                 try
                 {
-                    if (SearchRoot.FileDiscoverer != null && SearchRoot.FileDiscoverer.IsFinished)
+                    if (SearchRoot.FileDiscoverer is { IsFinished: true })
                     {
                         SearchRoot.ExtensionCache.SaveCache(paths, !SearchQuery.EnableRobotFileFilterDefer,
                             SearchQuery.RobotFilterMaxSizeMB, SearchQuery.RobotFilterMaxLineChars, SearchQuery.UseGitIgnore,
-                            extension.Extension);
+                            extension.Extension!);
                     }
                 }
                 catch (Exception e)
@@ -703,6 +782,7 @@ public class SearchTask
                 throw;
             }
         }
+        
 
         ReportFileSystemExceptions();
 
@@ -760,14 +840,18 @@ public class SearchTask
             foreach (var fileName in extToDictionary.Keys)
             {
                 bool anyPathMatches = false;
-                foreach (var fpath in SearchQuery.FilePaths)
+                foreach (var filePath in SearchQuery.FilePaths)
                 {
-                    string pathFolder = fpath.Folder.TrimEnd('\\');
+                    if (filePath.Folder == null)
+                    {
+                        continue;
+                    }
+                    string pathFolder = filePath.Folder.TrimEnd('\\');
                     if (fileName.StartsWith(pathFolder, StringComparison.OrdinalIgnoreCase) &&
                         pathFolder.Length < fileName.Length
                         && (fileName[pathFolder.Length] == '\\' || fileName[pathFolder.Length] == '/'))
                     {
-                        if (fpath.TopLevelOnly)
+                        if (filePath.TopLevelOnly)
                         {
                             int startIndex = pathFolder.Length + 1; 
                             if (fileName.IndexOf(Path.DirectorySeparatorChar,startIndex) != -1 
@@ -782,12 +866,13 @@ public class SearchTask
                     }
                 }
 
-                if (!anyPathMatches)
+                if (anyPathMatches)
                 {
-                    extToDictionary.TryRemove(fileName, out _);
+                    continue;
                 }
+                
+                extToDictionary.TryRemove(fileName, out _);
             }
-            
         }
     }
 
@@ -846,13 +931,16 @@ public class SearchTask
         for (var index = 0; index < SearchQuery.PriorityExtensions.Count; index++)
         {
             var ext = SearchQuery.PriorityExtensions[index];
-            priorities[ext.Extension] = index;
+            if (ext.Extension != null)
+            {
+                priorities[ext.Extension] = index;
+            }
         }
         var updated = RecyclingResultsInOrder.ToList();
         updated.Sort((a, b) =>
         {
-            if (!priorities.TryGetValue(Path.GetExtension(a.FileName), out var aOrder)) aOrder = priorities.Count;
-            if (!priorities.TryGetValue(Path.GetExtension(b.FileName), out var bOrder)) bOrder = priorities.Count;
+            if (!priorities.TryGetValue(Path.GetExtension(a.FileName!), out var aOrder)) aOrder = priorities.Count;
+            if (!priorities.TryGetValue(Path.GetExtension(b.FileName!), out var bOrder)) bOrder = priorities.Count;
             var aToBeTypeOrder = aOrder.CompareTo(bOrder);
             return aToBeTypeOrder != 0 ? aToBeTypeOrder : String.Compare(a.FileName, b.FileName, StringComparison.Ordinal);
         });
@@ -861,7 +949,6 @@ public class SearchTask
         foreach (var result in updated)
         {
             _fileNameCount++;
-            //_totalFileSIze
             if (SearchQuery.ReplaceInFileEnabled)
             {
                 ApplyReplaceTo(result,taskParameters);
@@ -890,12 +977,6 @@ public class SearchTask
         CancellationTokenSource? fileChangedCancellationTokenSource = null
         )
     {
-        const bool contentsSearch = true; // Todo: checkbox and option.
-        if (!contentsSearch)
-        {
-            return ContentResult.Skipped;
-        }
-        
         if (RetainedResults.TryGetValue(file, out var retainedValue) )
         {
             DebugPostCreation(taskParameters.DebugFileNameQuery, searchTaskResult, "RecyclingResults");
@@ -997,7 +1078,7 @@ public class SearchTask
         {
             contentResult.Replacing = true;
             
-            if (SearchFileContents.ReplaceMatches(contentResult.CapturedContents, taskParameters,
+            if (SearchFileContents.ReplaceMatches(contentResult.CapturedContents!, taskParameters,
                     out var replaceLine, out var blitzMatches))
             {
                 contentResult.ReplacedContents = replaceLine;
@@ -1031,15 +1112,11 @@ public class SearchTask
         }
 
         searchTaskResult.FileNames[0].ContentResults = contentResults;
-        if (retainResults)
+        if (!retainResults || thisCancellation.IsCancellationRequested)
         {
-            if (thisCancellation.IsCancellationRequested)
-            {
-                return ContentResult.FoundContents;
-            }
-            RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName, searchTaskResult.FileNames[0]);
-
+            return ContentResult.FoundContents;
         }
+        RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName!, searchTaskResult.FileNames[0]);
         return ContentResult.FoundContents;
 
     }
@@ -1173,7 +1250,7 @@ public class SearchTask
         return searchTaskResult.MissingRequirements.Count > 0;
     }
 
-    private void ReportFilesNotFoundMessage(string rawSearchString, string rawFileNamestring)
+    private void ReportFilesNotFoundMessage(string rawSearchString, string? rawFileNamestring)
     {
         var searchTaskResult = new SearchTaskResult();
         searchTaskResult.AlignIdentity(SearchQuery);
@@ -1279,7 +1356,7 @@ public class SearchTask
         var newRecycleDictionary = new Dictionary<string, FileNameResult>();
         foreach (var result in unlocked)
         {
-            newRecycleDictionary[result.FileName] = result;
+            newRecycleDictionary[result.FileName!] = result;
         }
         RecyclingResults = newRecycleDictionary.ToImmutableDictionary();
         try
@@ -1303,7 +1380,7 @@ public class SearchTask
                 }
                 else
                 {
-                    RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName, searchTaskResult.FileNames[0]);
+                    RetainedResults.TryAdd(searchTaskResult.FileNames[0].FileName!, searchTaskResult.FileNames[0]);
                 }
             }
         }
